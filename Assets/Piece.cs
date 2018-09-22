@@ -8,14 +8,18 @@ using UnityEngine;
 
 public class Piece : MonoBehaviour {
 
-    public float innerRadius = 3;
-    public int innerSmoothness = 24;
+    public float innerRadius = 5;
+    public int innerSmoothness = 56;
 
-    public float outerRadius = 4;
-    public int outerSmoothness = 24;
+    public float outerRadius = 6;
+    public int outerSmoothness = 56;
 
     public int totalAngle = 90;
     public int offsetRotation = 45;
+
+    public Vector3 ogScale;
+    public Vector3 ogPos;
+    public float timeElapsed;
 
     Vector2 origin, center;
 
@@ -23,8 +27,14 @@ public class Piece : MonoBehaviour {
 
     public bool needsUpdate;
 
+    public Direction d;
+    public bool locked;
+
     public Vector2[] getPoints(Vector2 off)
     {
+        timeElapsed = 0;
+        locked = false;
+
         List<Vector2> points = new List<Vector2>();
 
         origin = new Vector2(0, 0);
@@ -32,30 +42,33 @@ public class Piece : MonoBehaviour {
 
         float ang = offsetRotation;
 
-        for (int i = 0; i <= innerSmoothness; i++)
-        {
+        if (innerRadius != 0)
+            for (int i = 0; i <= innerSmoothness; i++)
+            {
 
-            float x = center.x + innerRadius * Mathf.Cos(ang * Mathf.Deg2Rad);
-            float y = center.y + innerRadius * Mathf.Sin(ang * Mathf.Deg2Rad);
+                float x = center.x + innerRadius * Mathf.Cos(ang * Mathf.Deg2Rad);
+                float y = center.y + innerRadius * Mathf.Sin(ang * Mathf.Deg2Rad);
 
-            points.Add(new Vector2(x, y));
-            ang += (float)totalAngle / innerSmoothness;
-        }
+                points.Add(new Vector2(x, y));
+                ang += (float)totalAngle / innerSmoothness;
+            }
 
         ang = offsetRotation;
 
-        for (int i = 0; i <= outerSmoothness; i++)
+        int oS = outerSmoothness;
+        if (totalAngle == 360)
+            oS++;
+
+        for (int i = 0; i <= oS; i++)
         {
             float x = center.x + outerRadius * Mathf.Cos(ang * Mathf.Deg2Rad);
             float y = center.y + outerRadius * Mathf.Sin(ang * Mathf.Deg2Rad);
 
             points.Insert(0, new Vector2(x, y));
-            ang += (float)totalAngle / outerSmoothness;
+            ang += (float)totalAngle / oS;
 
             //if (i == outerSmoothness)
             //    points.Add(new Vector2(x, y));
-            //
-            // ^ needs this to connect shape if using original edgeCollider script
         }
 
         pc2.points = points.ToArray();
@@ -63,7 +76,7 @@ public class Piece : MonoBehaviour {
         //Render thing
         int pointCount = 0;
         pointCount = pc2.GetTotalPointCount();
-        Debug.Log(pointCount);
+        //Debug.Log(pointCount);
         MeshFilter mf = GetComponent<MeshFilter>();
         Mesh mesh = new Mesh();
         Vector2[] polyPoints = pc2.points;
@@ -84,6 +97,33 @@ public class Piece : MonoBehaviour {
 
         needsUpdate = false;
         return points.ToArray();
+    }
+
+    public void lockPiece(){
+        locked = true;
+    }
+
+    public void setDir(Direction d) {
+        this.d = d;
+
+        switch (d) {
+            case Direction.Down:
+                transform.eulerAngles = new Vector3(0, 0, 0);
+                break;
+
+            case Direction.Up:
+                transform.eulerAngles = new Vector3(0, 0, 180);
+                break;
+
+            case Direction.Right:
+                transform.eulerAngles = new Vector3(0, 0, 90);
+                break;
+
+            case Direction.Left:
+                transform.eulerAngles = new Vector3(0, 0, 270);
+                break;
+
+        }
     }
 
     void Start () {
