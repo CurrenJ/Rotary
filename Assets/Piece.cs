@@ -14,8 +14,8 @@ public class Piece : MonoBehaviour {
     public float outerRadius = 6;
     public int outerSmoothness = 56;
 
-    public int totalAngle = 90;
-    public int offsetRotation = 45;
+    public float totalAngle = 90;
+    public float offsetRotation = 45;
 
     public Vector3 ogScale;
     public Vector3 ogPos;
@@ -27,13 +27,20 @@ public class Piece : MonoBehaviour {
 
     public bool needsUpdate;
 
-    public Direction d;
+    public float angle;
     public bool locked;
+    public float shrinkTime;
+    public float moveTime;
+    public Vector2 posOnGrid;
+    public float adjacentRadOnGrid;
+    public bool lockedOnce;
+    public Color color;
 
     public Vector2[] getPoints(Vector2 off)
     {
         timeElapsed = 0;
         locked = false;
+        lockedOnce = false;
 
         List<Vector2> points = new List<Vector2>();
 
@@ -101,29 +108,18 @@ public class Piece : MonoBehaviour {
 
     public void lockPiece(){
         locked = true;
+        lockedOnce = true;
     }
 
-    public void setDir(Direction d) {
-        this.d = d;
+    public void setOrientation(float angle, float arcSize)
+    {
+        this.angle = angle;
+        transform.eulerAngles = new Vector3(0, 0, angle);
+        totalAngle = arcSize;
+    }
 
-        switch (d) {
-            case Direction.Down:
-                transform.eulerAngles = new Vector3(0, 0, 0);
-                break;
-
-            case Direction.Up:
-                transform.eulerAngles = new Vector3(0, 0, 180);
-                break;
-
-            case Direction.Right:
-                transform.eulerAngles = new Vector3(0, 0, 90);
-                break;
-
-            case Direction.Left:
-                transform.eulerAngles = new Vector3(0, 0, 270);
-                break;
-
-        }
+    public void setColor(Color color) {
+        GetComponent<MeshRenderer>().material.color = color;
     }
 
     void Start () {

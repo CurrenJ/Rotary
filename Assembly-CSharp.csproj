@@ -62,7 +62,6 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Assets\ArcCollider2D.cs" />
-    <Compile Include="Assets\ArcCollider2D_Editor.cs" />
     <Compile Include="Assets\ColliderToMesh.cs" />
     <Compile Include="Assets\Direction.cs" />
     <Compile Include="Assets\GameController.cs" />
