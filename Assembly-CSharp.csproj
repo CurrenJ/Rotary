@@ -65,6 +65,7 @@
     <Compile Include="Assets\ColliderToMesh.cs" />
     <Compile Include="Assets\Direction.cs" />
     <Compile Include="Assets\GameController.cs" />
+    <Compile Include="Assets\MenuController.cs" />
     <Compile Include="Assets\Piece.cs" />
     <Compile Include="Assets\Triangulator.cs" />
     <Reference Include="UnityEditor.StandardEvents">

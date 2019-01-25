@@ -35,12 +35,21 @@ public class Piece : MonoBehaviour {
     public float adjacentRadOnGrid;
     public bool lockedOnce;
     public Color color;
+    public Color outlineColor;
+    public bool outlineEnabled;
+
+    public float fadeTime;
+    public float fadeTimeElapsed;
+    public Vector2[] points;
+    public Vector2[] realPoints;
 
     public Vector2[] getPoints(Vector2 off)
     {
         timeElapsed = 0;
         locked = false;
         lockedOnce = false;
+        fadeTime = 0.5F;
+        fadeTimeElapsed = fadeTime;
 
         List<Vector2> points = new List<Vector2>();
 
@@ -126,12 +135,12 @@ public class Piece : MonoBehaviour {
         needsUpdate = false;
 
         pc2 = GetComponent<PolygonCollider2D>();
-        getPoints(new Vector2(0, 0));
+        points = getPoints(new Vector2(0, 0));
 	}
 	
 	// Update is called once per frame
 	void Update () {
         if (needsUpdate)
-            getPoints(new Vector2(0, 0));
+            points = getPoints(new Vector2(0, 0));
 	}
 }

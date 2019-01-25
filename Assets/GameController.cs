@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class GameController : MonoBehaviour
 {
@@ -20,26 +21,36 @@ public class GameController : MonoBehaviour
     private int depth = 6;
     private bool random = false;
     private float randomTimer;
-    public int rotationPosition;
+    private int rotationPosition;
     public GameObject lockedContainer;
     private List<GameObject> removeList;
     public GameObject debugPiece;
     public string[] colors;
     private float turnTimeElapsed;
     public float turnTimeDefault;
-    public float turnTime;
-    public float lastRotationAngle;
-    public float currentRotationAngle;
+    private float turnTime;
+    private float lastRotationAngle;
+    private float currentRotationAngle;
+    private List<GameObject> outlines;
+    private List<GameObject> outlinesRemove;
+    public float spawnTime;
+    public GameObject wall;
 
     private const float DEG2RAD = Mathf.PI / 180;
     private const float pieceOffset = 45;
     private const float spawnDistance = 10;
+
+    public float outlineConst;
+    public GameObject particles;
 
     // Use this for initialization
     void Start()
     {
         pieces = new List<GameObject>();
         removeList = new List<GameObject>();
+        outlines = new List<GameObject>();
+        outlinesRemove = new List<GameObject>();
+        wall.GetComponent<MeshRenderer>().material.renderQueue = 0;
         setupGrid(nPA, depth);
 
         createCore();
@@ -93,9 +104,22 @@ public class GameController : MonoBehaviour
         }
         removeList.Clear();
 
+        foreach (GameObject piece in outlines) {
+            fadeOutline(piece);
+        }
+        foreach (GameObject piece in outlinesRemove) {
+            outlines.Remove(piece);
+        }
+        outlinesRemove.Clear();
+
+        foreach (ParticleSystem p in lockedContainer.GetComponentsInChildren<ParticleSystem>()) {
+            Debug.Log(p.IsAlive());
+            if (!p.IsAlive())
+                Destroy(p.gameObject);
+        }
 
         randomTimer += Time.deltaTime;
-        if (randomTimer >= 3 && random)
+        if (randomTimer >= spawnTime && random)
         {
             Color c;
             ColorUtility.TryParseHtmlString(colors[Random.Range(0, colors.Length)], out c);
@@ -104,6 +128,10 @@ public class GameController : MonoBehaviour
                 // float shrinkT = Random.Range(2, 5);
 
             }
+
+            if(spawnTime > 1)
+                spawnTime -= 0.01F;
+
             randomTimer = 0;
         }
     }
@@ -116,6 +144,9 @@ public class GameController : MonoBehaviour
         {
             if (Input.GetKeyDown(KeyCode.R))
                 rotateByPos(1);
+            else if (Input.GetKeyDown(KeyCode.L)) {
+                spawnParticles(debugPiece);
+            }
             else if (Input.GetKeyDown(KeyCode.P))
             {
                 for (int d = 0; d < depth; d++)
@@ -162,6 +193,11 @@ public class GameController : MonoBehaviour
 
     private void lockPiece(GameObject piece)
     {
+        bool removeP = false;
+        if (piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, depth - 1] != null && piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, depth - 1].GetComponent<Piece>().lockedOnce)
+            removeP = true;
+        //basically checks if the column the piece is falling into already has the max amount of pieces allowed
+
         piece.transform.position = core.transform.position;
         float matchScale = piece.GetComponent<Piece>().adjacentRadOnGrid / piece.GetComponent<Piece>().innerRadius;
         piece.transform.localScale = new Vector3(matchScale, matchScale, 1);
@@ -169,9 +205,17 @@ public class GameController : MonoBehaviour
         float tempAng = piece.transform.eulerAngles.z;
         piece.transform.SetParent(lockedContainer.transform, true);
         //piece.transform.eulerAngles = new Vector3(0, 0, tempAng + (currentRotationAngle - (rotationPosition * (360F / nPA)) ));
+        outlinePiece(piece, false);
         removeList.Add(piece);
 
-        checkForMatches(piece);
+        if (removeP)
+        {
+            removePiece(piece);
+        }
+        else
+        {
+            checkForMatches(piece);
+        }
         //Debug.Log("Piece locked. Position identifier: " + piece.transform.position + " Scale: " + matchScale);
     }
 
@@ -223,23 +267,26 @@ public class GameController : MonoBehaviour
         //        str += "[ " + p.GetComponent<Piece>().posOnGrid.x + ", " + p.GetComponent<Piece>().posOnGrid.y + "] ";
         //    }
         //    Debug.Log(str);
-
+        int matches = 0;
         if (pTRhori.Count > 2)
         {
             foreach (GameObject p in pTRhori)
             {
+                matches++;
                 removePiece(p);
             }
             recalcMovingPieces();
         }
-        if (pTRvert.Count > 2)
+        if (pTRvert.Count > 2 && false) //disabled because it was too easy to just stack the same colors
         {
             foreach (GameObject p in pTRvert)
             {
+                matches++;
                 removePiece(p);
             }
             recalcMovingPieces();
         }
+        scorePoints(matches);
     }
 
     private int normalizeRotPos(int rotPos) {
@@ -283,7 +330,8 @@ public class GameController : MonoBehaviour
         GameObject piece = new GameObject();
         piece.name = "Piece";
         piece.AddComponent<Piece>();
-        piece.GetComponent<MeshRenderer>().material = materialRed;
+        piece.GetComponent<MeshRenderer>().material = Instantiate(materialRed);
+        piece.GetComponent<MeshRenderer>().material.color = new Color(96F / 255F, 96F / 255F, 96F / 255F);
         piece.transform.SetParent(lockedContainer.transform, true);
 
         piece.GetComponent<Piece>().innerRadius = 0;
@@ -299,12 +347,12 @@ public class GameController : MonoBehaviour
         GameObject piece = new GameObject();
         piece.name = "Piece";
         piece.AddComponent<Piece>();
-        piece.GetComponent<MeshRenderer>().material = materialRed;
+        piece.GetComponent<MeshRenderer>().material = Instantiate(materialRed);
         piece.gameObject.transform.position = core.transform.position;
         piece.GetComponent<Piece>().ogScale = piece.transform.localScale;
         piece.GetComponent<Piece>().ogPos = piece.transform.position;
         piece.GetComponent<Piece>().offsetRotation += rotationPosition * (360F / nPA);
-        piece.GetComponent<Piece>().innerSmoothness = core.GetComponent<Piece>().outerSmoothness / 4;
+        piece.GetComponent<Piece>().innerSmoothness = core.GetComponent<Piece>().outerSmoothness / nPA;
         piece.GetComponent<Piece>().outerSmoothness = piece.GetComponent<Piece>().innerSmoothness;
         piece.GetComponent<Piece>().needsUpdate = true;
         pieces.Add(piece);
@@ -317,13 +365,13 @@ public class GameController : MonoBehaviour
             GameObject piece = new GameObject();
             piece.name = "Piece";
             piece.AddComponent<Piece>();
-            piece.GetComponent<MeshRenderer>().material = materialRed;
+            piece.GetComponent<MeshRenderer>().material = Instantiate(materialRed);
             piece.gameObject.transform.position = core.transform.position;
             piece.GetComponent<Piece>().ogScale = piece.transform.localScale;
             piece.transform.position += new Vector3(x, y, 0);
             piece.GetComponent<Piece>().ogPos = piece.transform.position;
             piece.GetComponent<Piece>().offsetRotation += rotationPosition * (360F / nPA);
-            piece.GetComponent<Piece>().innerSmoothness = core.GetComponent<Piece>().outerSmoothness / 4;
+            piece.GetComponent<Piece>().innerSmoothness = core.GetComponent<Piece>().outerSmoothness / nPA;
             piece.GetComponent<Piece>().outerSmoothness = piece.GetComponent<Piece>().innerSmoothness;
             piece.GetComponent<Piece>().setOrientation((360F / nPA) * positionAround, (360F / nPA));
             piece.GetComponent<Piece>().moveTime = mT;
@@ -361,14 +409,14 @@ public class GameController : MonoBehaviour
             GameObject piece = new GameObject();
             piece.name = "Piece";
             piece.AddComponent<Piece>();
-            piece.GetComponent<MeshRenderer>().material = materialRed;
+            piece.GetComponent<MeshRenderer>().material = Instantiate(materialRed);
             piece.gameObject.transform.position = core.transform.position;
             piece.GetComponent<Piece>().ogScale = piece.transform.localScale;
             piece.transform.position += new Vector3(Mathf.Cos(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * spawnDistance, Mathf.Sin(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * spawnDistance, 0);
             Debug.Log("Pos: " + (posArAdjusted) + " Deg  (rads): " + ((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) + " X: " + Mathf.Cos(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * 5 + " Y: " + Mathf.Sin(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * 5);
             piece.GetComponent<Piece>().ogPos = piece.transform.position;
             piece.GetComponent<Piece>().offsetRotation += rotationPosition * (360F / nPA);
-            piece.GetComponent<Piece>().innerSmoothness = core.GetComponent<Piece>().outerSmoothness / 4;
+            piece.GetComponent<Piece>().innerSmoothness = core.GetComponent<Piece>().outerSmoothness / nPA;
             piece.GetComponent<Piece>().outerSmoothness = piece.GetComponent<Piece>().innerSmoothness;
             piece.GetComponent<Piece>().setOrientation((360F / nPA) * positionAround, (360F / nPA));
             piece.GetComponent<Piece>().moveTime = mT;
@@ -412,20 +460,21 @@ public class GameController : MonoBehaviour
             GameObject piece = new GameObject();
             piece.name = "Piece";
             piece.AddComponent<Piece>();
-            piece.GetComponent<MeshRenderer>().material = materialRed;
+            piece.GetComponent<MeshRenderer>().material = Instantiate(materialRed);
             piece.gameObject.transform.position = core.transform.position;
             piece.GetComponent<Piece>().ogScale = piece.transform.localScale;
             piece.transform.position += new Vector3(Mathf.Cos(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * spawnDistance, Mathf.Sin(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * spawnDistance, 0);
             //Debug.Log("Pos: " + (posArAdjusted) + " Deg  (rads): " + ((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) + " X: " + Mathf.Cos(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * 5 + " Y: " + Mathf.Sin(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * 5);
             piece.GetComponent<Piece>().ogPos = piece.transform.position;
             piece.GetComponent<Piece>().offsetRotation += rotationPosition * (360F / nPA);
-            piece.GetComponent<Piece>().innerSmoothness = core.GetComponent<Piece>().outerSmoothness / 4;
+            piece.GetComponent<Piece>().innerSmoothness = core.GetComponent<Piece>().outerSmoothness / nPA;
             piece.GetComponent<Piece>().outerSmoothness = piece.GetComponent<Piece>().innerSmoothness;
             piece.GetComponent<Piece>().setOrientation((360F / nPA) * positionAround, (360F / nPA));
             piece.GetComponent<Piece>().moveTime = mT;
             piece.GetComponent<Piece>().shrinkTime = sT;
             piece.GetComponent<Piece>().setColor(color);
             piece.GetComponent<Piece>().color = color;
+            outlinePiece(piece, true);
             //Debug.Log("Piece created at: " + piece.transform.position);
             pieces.Add(piece);
             bool breakout = false;
@@ -455,13 +504,13 @@ public class GameController : MonoBehaviour
             GameObject piece = new GameObject();
             piece.name = "Piece";
             piece.AddComponent<Piece>();
-            piece.GetComponent<MeshRenderer>().material = materialRed;
+            piece.GetComponent<MeshRenderer>().material = Instantiate(materialRed);
             piece.gameObject.transform.position = core.transform.position;
             piece.GetComponent<Piece>().ogScale = piece.transform.localScale;
             piece.transform.position += new Vector3(x, y, 0);
             piece.GetComponent<Piece>().ogPos = piece.transform.position;
             piece.GetComponent<Piece>().offsetRotation += rotationPosition * (360F / nPA);
-            piece.GetComponent<Piece>().innerSmoothness = core.GetComponent<Piece>().outerSmoothness / 4;
+            piece.GetComponent<Piece>().innerSmoothness = core.GetComponent<Piece>().outerSmoothness / nPA;
             piece.GetComponent<Piece>().outerSmoothness = piece.GetComponent<Piece>().innerSmoothness;
             piece.GetComponent<Piece>().setOrientation((360F / nPA) * positionAround, (360F / nPA));
             piece.GetComponent<Piece>().moveTime = mT;
@@ -551,7 +600,7 @@ public class GameController : MonoBehaviour
         lastRotationAngle = lockedContainer.transform.eulerAngles.z;
         nPA = numPiecesAround;
         depth = maxDepth;
-        piecesGrid = new GameObject[nPA, depth];
+        piecesGrid = new GameObject[nPA, depth+1];
     }
 
     private float getOuterRadius(GameObject curPiece)
@@ -663,6 +712,8 @@ public class GameController : MonoBehaviour
                         breakout = true;
                     }
                 }
+                if (!breakout)
+                    temp.y = depth;
                 piece.GetComponent<Piece>().posOnGrid = temp;
                 piecesGrid[(int)temp.x, (int)temp.y] = piece;
                 piece.GetComponent<Piece>().adjacentRadOnGrid = getOuterRadius(piece);
@@ -715,6 +766,8 @@ public class GameController : MonoBehaviour
 
     public void removePiece(GameObject piece)
     {
+        outlines.Remove(piece);
+        spawnParticles(piece);
         if (!piece.GetComponent<Piece>().locked)
         {
             piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, (int)piece.GetComponent<Piece>().posOnGrid.y] = null;
@@ -749,6 +802,81 @@ public class GameController : MonoBehaviour
                 piecesGrid[(int)p.GetComponent<Piece>().posOnGrid.x, (int)p.GetComponent<Piece>().posOnGrid.y] = p;
                 pieces.Add(p);
             }
+        }
+    }
+
+    public void outlinePiece(GameObject piece, bool enabled) {
+        if (piece.GetComponent<Piece>().outlineEnabled != enabled) {
+            if (piece.GetComponent<Piece>().outlineEnabled) {
+                //Destroy(piece.transform.GetChild(0));
+                piece.GetComponent<Piece>().fadeTimeElapsed = 0;
+                piece.GetComponent<Piece>().outlineEnabled = false;
+            }
+            else
+            {
+                //GameObject smallPiece = Instantiate(piece);
+                //smallPiece.transform.SetParent(piece.transform, true);
+                //smallPiece.transform.localScale = smallPiece.transform.localScale * (1-outlineConst);
+                //float magnitude = ((piece.GetComponent<Piece>().outerRadius - piece.GetComponent<Piece>().innerRadius) * piece.transform.localScale.x * outlineConst * 0.5F) + piece.GetComponent<Piece>().innerRadius * outlineConst;
+                //float theta = piece.transform.rotation.z + piece.GetComponent<Piece>().offsetRotation + piece.GetComponent<Piece>().totalAngle / 2;
+                //float x = smallPiece.transform.localPosition.x + magnitude * Mathf.Cos(Mathf.Deg2Rad * theta);
+                //float y = smallPiece.transform.localPosition.y + magnitude * Mathf.Sin(Mathf.Deg2Rad * theta);
+                //Debug.Log(theta + ", " + x + ", " + y);
+
+                //smallPiece.transform.localPosition = new Vector3(x, y, 0);
+
+                GameObject smallPiece = Instantiate(piece);
+                smallPiece.transform.SetParent(piece.transform);
+                smallPiece.GetComponent<Piece>().innerRadius += outlineConst; //assumes that outerRad - innerRad == 1
+                smallPiece.GetComponent<Piece>().outerRadius -= outlineConst;
+                smallPiece.GetComponent<Piece>().offsetRotation += smallPiece.GetComponent<Piece>().totalAngle * (outlineConst / 4F);
+                smallPiece.GetComponent<Piece>().totalAngle *= (1 - outlineConst * 0.5F);
+
+                Color col = piece.GetComponent<Piece>().color;
+                Color darkCol = new Color(col.r * 0.75F, col.g * 0.75F, col.b * 0.75F);
+                piece.GetComponent<MeshRenderer>().material.color = darkCol;
+                piece.GetComponent<Piece>().outlineColor = darkCol;
+                smallPiece.GetComponent<MeshRenderer>().material.color = col;
+                piece.GetComponent<MeshRenderer>().material.renderQueue = 1; //2d sprites on same render layer will additively blend, we don't want that
+                piece.GetComponent<Piece>().outlineEnabled = true;
+                outlines.Add(piece);
+            }
+        }
+    }
+
+    public void fadeOutline(GameObject piece) {
+        if (piece.GetComponent<Piece>().fadeTimeElapsed < piece.GetComponent<Piece>().fadeTime) {
+            piece.GetComponent<Piece>().fadeTimeElapsed += Time.deltaTime;
+            //Debug.Log(piece.GetComponent<Piece>().fadeTimeElapsed);
+            float scalar = piece.GetComponent<Piece>().fadeTimeElapsed / piece.GetComponent<Piece>().fadeTime;
+            if (scalar > 1)
+            {
+                scalar = 1;
+                outlinesRemove.Add(piece);
+                Destroy(piece.transform.GetChild(0).gameObject);
+            }
+
+            piece.GetComponent<MeshRenderer>().material.color = piece.GetComponent<Piece>().outlineColor + (piece.GetComponent<Piece>().color - piece.GetComponent<Piece>().outlineColor) * scalar;
+            Color col = piece.GetComponent<MeshRenderer>().material.color;
+            col = new Color(col.r, col.g, col.b, 1);
+            piece.GetComponent<MeshRenderer>().material.color = col;
+        }
+    }
+
+    public void scorePoints(int piecesCleared) {
+        if(piecesCleared >= 3)
+            GameObject.FindGameObjectWithTag("scoreText").GetComponent<Text>().text = "" + (int.Parse(GameObject.FindGameObjectWithTag("scoreText").GetComponent<Text>().text) + Mathf.Pow(piecesCleared - 2, 2) + 2);
+    }
+
+    public void spawnParticles(GameObject piece) {
+        Piece component = piece.GetComponent<Piece>();
+        foreach (Vector2 point in component.points) {
+            GameObject parts = Instantiate(particles, piece.transform, false);
+            parts.transform.localPosition = point;
+            parts.transform.localScale = new Vector3(0.25F, 0.25F, 0.25F);
+            parts.transform.SetParent(piece.transform.parent, true);
+            ParticleSystem.MainModule psMain = parts.GetComponent<ParticleSystem>().main;
+            psMain.startColor = piece.GetComponent<Piece>().color;
         }
     }
 }
