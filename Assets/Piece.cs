@@ -37,6 +37,7 @@ public class Piece : MonoBehaviour {
     public Color color;
     public Color outlineColor;
     public bool outlineEnabled;
+    public string specialType;
 
     public float fadeTime;
     public float fadeTimeElapsed;
@@ -129,6 +130,27 @@ public class Piece : MonoBehaviour {
 
     public void setColor(Color color) {
         GetComponent<MeshRenderer>().material.color = color;
+    }
+
+    public void setSpecialType(string type) {
+        specialType = type;
+        if (!specialType.Equals("")) {
+            GameObject text = new GameObject();
+            text.AddComponent<TextMesh>();
+            text.transform.SetParent(gameObject.transform);
+            text.transform.localPosition = new Vector3(0, 0, 0);
+            text.transform.localEulerAngles = new Vector3(0, 0, ((-totalAngle / 2) + offsetRotation -    45));
+            text.GetComponent<TextMesh>().text = specialType;
+            text.GetComponent<TextMesh>().alignment = TextAlignment.Center;
+            text.GetComponent<TextMesh>().anchor = TextAnchor.MiddleCenter;
+            text.GetComponent<TextMesh>().fontSize = 100;
+            text.transform.localScale = new Vector3(0.05F, 0.05F, 0.05F);
+            float angle = Mathf.Deg2Rad * ((-totalAngle / 2) + offsetRotation + 45);
+            Debug.Log("bomb angle: " + ((-totalAngle / 2) + offsetRotation));
+            float radiiMid = (outerRadius + innerRadius) / 2;
+            //float pointDist = Mathf.Sqrt(Mathf.Pow(Mathf.Sin(Mathf.Deg2Rad * totalAngle) * innerRadius, 2) + Mathf.Pow(innerRadius - Mathf.Sin(Mathf.Deg2Rad * totalAngle) * innerRadius, 2));
+            text.transform.localPosition = new Vector3(Mathf.Cos(angle) * radiiMid, Mathf.Sin(angle) * radiiMid, -0.01F);
+        }
     }
 
     void Start () {

@@ -23,7 +23,7 @@ public class GameController : MonoBehaviour
     private float randomTimer;
     private int rotationPosition;
     public GameObject lockedContainer;
-    private List<GameObject> removeList;
+    private GameObject[,] removeList;
     public GameObject debugPiece;
     public string[] colors;
     private float turnTimeElapsed;
@@ -35,6 +35,14 @@ public class GameController : MonoBehaviour
     private List<GameObject> outlinesRemove;
     public float spawnTime;
     public GameObject wall;
+    public int score;
+    public string[] specialTypes;
+    public List<GameObject> fallingListRemove;
+
+    public float camZoomTimeElapsed;
+    public float camZoomDest;
+    public float camZoomStart;
+    public float camTimeToMove;
 
     private const float DEG2RAD = Mathf.PI / 180;
     private const float pieceOffset = 45;
@@ -47,10 +55,11 @@ public class GameController : MonoBehaviour
     void Start()
     {
         pieces = new List<GameObject>();
-        removeList = new List<GameObject>();
         outlines = new List<GameObject>();
         outlinesRemove = new List<GameObject>();
+        fallingListRemove = new List<GameObject>();
         wall.GetComponent<MeshRenderer>().material.renderQueue = 0;
+        score = 0;
         setupGrid(nPA, depth);
 
         createCore();
@@ -68,10 +77,8 @@ public class GameController : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        handleInput();
-
-        turnTimeElapsed += Time.deltaTime;
-        smoothRotateUpdate();
+        
+        scoreProgressionUpdate();
 
         foreach (GameObject piece in pieces)
         {
@@ -90,6 +97,7 @@ public class GameController : MonoBehaviour
                         lockPiece(piece);
                     else
                     {
+                        lockPiece(piece, rotationPosition);
                         //if turnTimeDefault is a decent speed, then users keeping pieces unlocked by spamming the turn shouldn't be an issue. also I need to handle users turning falling pieces into existing locked pieces. what should happen? should the core be blocked from turning? piece deleted? or does the user lose?
                         //removePiece(piece); 
                     }
@@ -98,11 +106,12 @@ public class GameController : MonoBehaviour
                     movePiece(piece, piece.GetComponent<Piece>().moveTime);
             }
         }
-        foreach (GameObject piece in removeList)
-        {
+        foreach(GameObject piece in fallingListRemove) {
+            //Debug.Log("removing falling piece: " + piece.GetComponent<Piece>().posOnGrid.x + ", " + piece.GetComponent<Piece>().posOnGrid.y);
             pieces.Remove(piece);
         }
-        removeList.Clear();
+        fallingListRemove.Clear();
+        removePiece();
 
         foreach (GameObject piece in outlines) {
             fadeOutline(piece);
@@ -113,7 +122,7 @@ public class GameController : MonoBehaviour
         outlinesRemove.Clear();
 
         foreach (ParticleSystem p in lockedContainer.GetComponentsInChildren<ParticleSystem>()) {
-            Debug.Log(p.IsAlive());
+            //Debug.Log(p.IsAlive());
             if (!p.IsAlive())
                 Destroy(p.gameObject);
         }
@@ -123,17 +132,22 @@ public class GameController : MonoBehaviour
         {
             Color c;
             ColorUtility.TryParseHtmlString(colors[Random.Range(0, colors.Length)], out c);
-            while (!createPiece(Random.Range(0, nPA), 5, 2, c))
+            while (!createPiece(Random.Range(0, nPA), 5, 2, c, randSpecType()))
             {
                 // float shrinkT = Random.Range(2, 5);
 
             }
 
-            if(spawnTime > 1)
+            if (spawnTime > 1)
                 spawnTime -= 0.01F;
 
             randomTimer = 0;
         }
+
+        handleInput();
+
+        turnTimeElapsed += Time.deltaTime;
+        smoothRotateUpdate();
     }
 
     private void handleInput()
@@ -144,12 +158,13 @@ public class GameController : MonoBehaviour
         {
             if (Input.GetKeyDown(KeyCode.R))
                 rotateByPos(1);
-            else if (Input.GetKeyDown(KeyCode.L)) {
+            else if (Input.GetKeyDown(KeyCode.L))
+            {
                 spawnParticles(debugPiece);
             }
             else if (Input.GetKeyDown(KeyCode.P))
             {
-                for (int d = 0; d < depth; d++)
+                for (int d = depth - 1; d >= 0; d--)
                 {
                     string str = "";
                     for (int p = 0; p < nPA; p++)
@@ -164,6 +179,15 @@ public class GameController : MonoBehaviour
             else if (Input.GetKeyDown(KeyCode.D))
             {
                 removePiece(debugPiece);
+            }
+            else if (Input.GetKeyDown(KeyCode.S)) {
+                Color c;
+                ColorUtility.TryParseHtmlString(colors[Random.Range(0, colors.Length)], out c);
+                while (!createPiece(Random.Range(0, nPA), 5, 2, c, randSpecType()))
+                {
+                    // float shrinkT = Random.Range(2, 5);
+
+                }
             }
 
             if (Input.GetMouseButtonDown(0))
@@ -206,17 +230,50 @@ public class GameController : MonoBehaviour
         piece.transform.SetParent(lockedContainer.transform, true);
         //piece.transform.eulerAngles = new Vector3(0, 0, tempAng + (currentRotationAngle - (rotationPosition * (360F / nPA)) ));
         outlinePiece(piece, false);
-        removeList.Add(piece);
+        fallingListRemove.Add(piece); //removes this piece object from the Pieces list (non locked pieces, falling for first time)
 
         if (removeP)
         {
             removePiece(piece);
+            Debug.Log("Removing piece " + piece.GetComponent<Piece>().posOnGrid.x + ", " + piece.GetComponent<Piece>().posOnGrid.y + " because of overflow.");
         }
         else
         {
             checkForMatches(piece);
         }
         //Debug.Log("Piece locked. Position identifier: " + piece.transform.position + " Scale: " + matchScale);
+        //Debug.Log("Piece locked. " + piece.GetComponent<Piece>().posOnGrid.x + ", " + piece.GetComponent<Piece>().posOnGrid.y);
+    }
+
+    private void lockPiece(GameObject piece, int lockRotPos)
+    {
+        bool removeP = false;
+        if (piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, depth - 1] != null && piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, depth - 1].GetComponent<Piece>().lockedOnce)
+            removeP = true;
+        //basically checks if the column the piece is falling into already has the max amount of pieces allowed
+
+        piece.transform.position = core.transform.position;
+        float matchScale = piece.GetComponent<Piece>().adjacentRadOnGrid / piece.GetComponent<Piece>().innerRadius;
+        piece.transform.localScale = new Vector3(matchScale, matchScale, 1);
+        float tempAng = piece.transform.eulerAngles.z;
+        piece.transform.localEulerAngles = new Vector3(0, 0, tempAng + currentRotationAngle - (rotationPosition * (360 / nPA)));
+        piece.transform.GetComponent<Piece>().lockPiece();
+        piece.transform.SetParent(lockedContainer.transform, true);
+        //piece.transform.eulerAngles = new Vector3(0, 0, tempAng + (currentRotationAngle - (rotationPosition * (360F / nPA)) ));
+        outlinePiece(piece, false);
+        fallingListRemove.Remove(piece);
+
+        if (removeP)
+        {
+            removePiece(piece);
+            Debug.Log("Removing piece " + piece.GetComponent<Piece>().posOnGrid.x + ", " + piece.GetComponent<Piece>().posOnGrid.y + " because of overflow.");
+        }
+        else
+        {
+            checkForMatches(piece);
+        }
+        //Debug.Log("Piece locked. Position identifier: " + piece.transform.position + " Scale: " + matchScale);
+        //Debug.Log("Piece locked. " + piece.GetComponent<Piece>().posOnGrid.x + ", " + piece.GetComponent<Piece>().posOnGrid.y);
     }
 
     private void checkForMatches(GameObject piece)
@@ -232,10 +289,14 @@ public class GameController : MonoBehaviour
         bool breakoutA = false;
         for (int a = 1; a < nPA / 2 && !breakoutA; a++)
         {
-            //Debug.Log("C: " + c.ToString() + " | " + getPieceComp(x + a, y).color.ToString() + " | " + getPieceComp(x + a, y).color.ToString().Equals(c.ToString()) + " | " + getPieceComp(x + a, y).locked);
-            if (getPieceComp(x + a, y) != null && getPieceComp(x + a, y).locked && getPieceComp(x + a, y).color.ToString().Equals(c.ToString()))
+            if (getPieceComp(x + a, y) != null)
             {
-                pTRhori.Add(getPiece(x + a, y));
+                //Debug.Log("C: " + c.ToString() + " | " + getPieceComp(x + a, y).color.ToString() + " | " + getPieceComp(x + a, y).color.ToString().Equals(c.ToString()) + " | " + getPieceComp(x + a, y).locked);
+                if (getPieceComp(x + a, y) != null && getPieceComp(x + a, y).locked && getPieceComp(x + a, y).color.ToString().Equals(c.ToString()))
+                {
+                    pTRhori.Add(getPiece(x + a, y));
+                }
+                else breakoutA = true;
             }
             else breakoutA = true;
         }
@@ -243,10 +304,14 @@ public class GameController : MonoBehaviour
         bool breakoutB = false;
         for (int a = 1; a < nPA / 2 && !breakoutB; a++)
         {
-            //Debug.Log("C: " + c.ToString() + " | " + getPieceComp(x - a, y).color.ToString() + " | " + getPieceComp(x - a, y).color.ToString().Equals(c.ToString()) + " | " + getPieceComp(x - a, y).locked);
-            if (getPieceComp(x - a, y) != null && getPieceComp(x - a, y).locked && getPieceComp(x - a, y).color.ToString().Equals(c.ToString()))
+            if (getPieceComp(x - a, y) != null)
             {
-                pTRhori.Add(getPiece(x - a, y));
+                //Debug.Log("C: " + c.ToString() + " | " + getPieceComp(x - a, y).color.ToString() + " | " + getPieceComp(x - a, y).color.ToString().Equals(c.ToString()) + " | " + getPieceComp(x - a, y).locked);
+                if (getPieceComp(x - a, y) != null && getPieceComp(x - a, y).locked && getPieceComp(x - a, y).color.ToString().Equals(c.ToString()))
+                {
+                    pTRhori.Add(getPiece(x - a, y));
+                }
+                else breakoutB = true;
             }
             else breakoutB = true;
         }
@@ -270,23 +335,103 @@ public class GameController : MonoBehaviour
         int matches = 0;
         if (pTRhori.Count > 2)
         {
+            foreach (GameObject p in pTRhori) {
+                matches += activateSpecial(p);
+            }
             foreach (GameObject p in pTRhori)
             {
-                matches++;
-                removePiece(p);
+                if (p != null)
+                {
+                    matches++;
+                    removePiece(p);
+                    Debug.Log("Removing piece " + piece.GetComponent<Piece>().posOnGrid.x + ", " + piece.GetComponent<Piece>().posOnGrid.y + " because of horizontal matches.");
+                }
+
             }
-            recalcMovingPieces();
+            //recalcMovingPieces();
         }
         if (pTRvert.Count > 2 && false) //disabled because it was too easy to just stack the same colors
         {
+            foreach (GameObject p in pTRvert) {
+                matches += activateSpecial(p);
+            }
             foreach (GameObject p in pTRvert)
             {
-                matches++;
-                removePiece(p);
+                if (p != null)
+                {
+                    matches++;
+                    removePiece(p);
+                    Debug.Log("Removing piece " + piece.GetComponent<Piece>().posOnGrid.x + ", " + piece.GetComponent<Piece>().posOnGrid.y + " because of vertical matches.");
+                }
             }
-            recalcMovingPieces();
+            //recalcMovingPieces();
         }
         scorePoints(matches);
+    }
+
+    private int activateSpecial(GameObject piece) {
+        List<GameObject> toRemove = new List<GameObject>();
+        Piece p = piece.GetComponent<Piece>();
+        if (p.specialType.Equals("bomb"))
+        {
+            //Debug.Log("Bomb activated.");
+            for (int x = -1; x <= 1; x++)
+            {
+                for (int y = -1; y <= 1; y++)
+                {
+                    bool skip = false;
+                    int targetPieceX = (int)p.posOnGrid.x + x;
+                    int targetPieceY = (int)p.posOnGrid.y + y;
+                    if (targetPieceY < 0 || targetPieceY > depth - 1)
+                    {
+                        skip = true;
+                    }
+
+                    if (!skip && getPiece(targetPieceX, targetPieceY) != null && getPieceComp(targetPieceX, targetPieceY).lockedOnce)
+                    {
+                        //Debug.Log("obliterating " + targetPieceX + ", " + targetPieceY);
+                        removePiece(getPiece(targetPieceX, targetPieceY));
+                        Debug.Log("Removing piece " + piece.GetComponent<Piece>().posOnGrid.x + ", " + piece.GetComponent<Piece>().posOnGrid.y + " because of special type " + piece.GetComponent<Piece>().specialType + ".");
+                    }
+                }
+            }
+        }
+        else if (p.specialType.Equals("color"))
+        {
+            for (int x = 0; x < nPA; x++)
+            {
+                for (int y = 0; y < depth; y++)
+                {
+                    if (getPieceComp(x, y) != null && getPieceComp(x, y).color.ToString().Equals(p.color.ToString()))
+                    {
+                        toRemove.Add(getPiece(x, y));
+                    }
+                }
+            }
+        }
+        else if (p.specialType.Equals("ring"))
+        {
+            for (int x = 0; x < nPA; x++)
+            {
+                if (getPieceComp(x, (int)p.posOnGrid.y) != null)
+                {
+                    toRemove.Add(getPiece(x, (int)p.posOnGrid.y));
+                }
+            }
+        }
+        else if (p.specialType.Equals("vert")) {
+            for (int y = 0; y < depth; y++) {
+                if (getPieceComp((int)p.posOnGrid.x, y) != null) {
+                    toRemove.Add(getPiece((int)p.posOnGrid.x, y));
+                }
+            }
+        }
+
+        int num = toRemove.Count;
+        foreach (GameObject g in toRemove) {
+            removePiece(g);
+        }
+        return num;
     }
 
     private int normalizeRotPos(int rotPos) {
@@ -413,7 +558,7 @@ public class GameController : MonoBehaviour
             piece.gameObject.transform.position = core.transform.position;
             piece.GetComponent<Piece>().ogScale = piece.transform.localScale;
             piece.transform.position += new Vector3(Mathf.Cos(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * spawnDistance, Mathf.Sin(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * spawnDistance, 0);
-            Debug.Log("Pos: " + (posArAdjusted) + " Deg  (rads): " + ((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) + " X: " + Mathf.Cos(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * 5 + " Y: " + Mathf.Sin(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * 5);
+            //Debug.Log("Pos: " + (posArAdjusted) + " Deg  (rads): " + ((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) + " X: " + Mathf.Cos(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * 5 + " Y: " + Mathf.Sin(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * 5);
             piece.GetComponent<Piece>().ogPos = piece.transform.position;
             piece.GetComponent<Piece>().offsetRotation += rotationPosition * (360F / nPA);
             piece.GetComponent<Piece>().innerSmoothness = core.GetComponent<Piece>().outerSmoothness / nPA;
@@ -421,6 +566,7 @@ public class GameController : MonoBehaviour
             piece.GetComponent<Piece>().setOrientation((360F / nPA) * positionAround, (360F / nPA));
             piece.GetComponent<Piece>().moveTime = mT;
             piece.GetComponent<Piece>().shrinkTime = sT;
+            piece.GetComponent<Piece>().setSpecialType("");
             //Debug.Log("Piece created at: " + piece.transform.position);
             pieces.Add(piece);
             bool breakout = false;
@@ -474,6 +620,62 @@ public class GameController : MonoBehaviour
             piece.GetComponent<Piece>().shrinkTime = sT;
             piece.GetComponent<Piece>().setColor(color);
             piece.GetComponent<Piece>().color = color;
+            piece.GetComponent<Piece>().setSpecialType("");
+            outlinePiece(piece, true);
+            //Debug.Log("Piece created at: " + piece.transform.position);
+            pieces.Add(piece);
+            bool breakout = false;
+            for (int d = 0; d < depth && !breakout; d++)
+            {
+                if (piecesGrid[positionAround, d] == null)
+                {
+                    piecesGrid[positionAround, d] = piece;
+                    piece.GetComponent<Piece>().posOnGrid = new Vector2(positionAround, d);
+                    piece.GetComponent<Piece>().adjacentRadOnGrid = getOuterRadius(piece);
+                    //Debug.Log("Piece created at grid location [" + positionAround + ", " + d + "]");
+                    breakout = true;
+                }
+            }
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    private bool createPiece(int positionAround, float mT, float sT, Color color, string specialType)
+    {
+        int posArAdjusted = positionAround + rotationPosition;
+        if (posArAdjusted < 0)
+        {
+            posArAdjusted += nPA;
+        }
+        else if (posArAdjusted >= nPA)
+        {
+            posArAdjusted -= nPA;
+        }
+
+        if (piecesGrid[positionAround, depth - 1] == null)
+        {
+            GameObject piece = new GameObject();
+            piece.name = "Piece";
+            piece.AddComponent<Piece>();
+            piece.GetComponent<MeshRenderer>().material = Instantiate(materialRed);
+            piece.gameObject.transform.position = core.transform.position;
+            piece.GetComponent<Piece>().ogScale = piece.transform.localScale;
+            piece.transform.position += new Vector3(Mathf.Cos(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * spawnDistance, Mathf.Sin(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * spawnDistance, 0);
+            //Debug.Log("Pos: " + (posArAdjusted) + " Deg  (rads): " + ((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) + " X: " + Mathf.Cos(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * 5 + " Y: " + Mathf.Sin(((posArAdjusted) * (360F / nPA) + pieceOffset + (360F / nPA / 2)) * DEG2RAD) * 5);
+            piece.GetComponent<Piece>().ogPos = piece.transform.position;
+            piece.GetComponent<Piece>().offsetRotation += rotationPosition * (360F / nPA);
+            piece.GetComponent<Piece>().innerSmoothness = core.GetComponent<Piece>().outerSmoothness / nPA;
+            piece.GetComponent<Piece>().outerSmoothness = piece.GetComponent<Piece>().innerSmoothness;
+            piece.GetComponent<Piece>().setOrientation((360F / nPA) * positionAround, (360F / nPA));
+            piece.GetComponent<Piece>().moveTime = mT;
+            piece.GetComponent<Piece>().shrinkTime = sT;
+            piece.GetComponent<Piece>().setColor(color);
+            piece.GetComponent<Piece>().color = color;
+            piece.GetComponent<Piece>().setSpecialType(specialType);
             outlinePiece(piece, true);
             //Debug.Log("Piece created at: " + piece.transform.position);
             pieces.Add(piece);
@@ -516,6 +718,7 @@ public class GameController : MonoBehaviour
             piece.GetComponent<Piece>().moveTime = mT;
             piece.GetComponent<Piece>().shrinkTime = sT;
             piece.GetComponent<Piece>().setColor(color);
+            piece.GetComponent<Piece>().setSpecialType("");
             //Debug.Log("Piece created at: " + piece.transform.position);
             pieces.Add(piece);
             for (int d = 0; d < depth; d++)
@@ -600,7 +803,13 @@ public class GameController : MonoBehaviour
         lastRotationAngle = lockedContainer.transform.eulerAngles.z;
         nPA = numPiecesAround;
         depth = maxDepth;
-        piecesGrid = new GameObject[nPA, depth+1];
+        piecesGrid = new GameObject[nPA, depth + 1];
+        removeList = new GameObject[nPA, depth + 1];
+        for (int x = 0; x < nPA; x++) {
+            for (int y = 0; y < depth + 1; y++) {
+                removeList[x, y] = null;
+            }
+        }
     }
 
     private float getOuterRadius(GameObject curPiece)
@@ -658,14 +867,14 @@ public class GameController : MonoBehaviour
             else if (angleDif < 0)
                 angleDif = angleDif + 360;
         }
-       // Debug.Log("A@: " + angleDif);
+        // Debug.Log("A@: " + angleDif);
 
         scalar = quadEasing(scalar);
         float angle = lastRotationAngle + (angleDif * scalar);
-            if (angle >= 360)
-                angle -= 360;
-            else if (angle < 0)
-                angle += 360;
+        if (angle >= 360)
+            angle -= 360;
+        else if (angle < 0)
+            angle += 360;
 
         lockedContainer.transform.eulerAngles = new Vector3(0, 0, angle);
         currentRotationAngle = lockedContainer.transform.eulerAngles.z;
@@ -745,7 +954,7 @@ public class GameController : MonoBehaviour
         }
     }
 
-    public void recalcMovingPieces() {
+    public void recalcMovingPieces() { //deprecated
         foreach (GameObject piece in pieces) {
             Vector2 temp = piece.GetComponent<Piece>().posOnGrid;
             piecesGrid[(int)temp.x, (int)temp.y] = null;
@@ -766,43 +975,92 @@ public class GameController : MonoBehaviour
 
     public void removePiece(GameObject piece)
     {
-        outlines.Remove(piece);
-        spawnParticles(piece);
-        if (!piece.GetComponent<Piece>().locked)
+        //Debug.Log("added " + piece.GetComponent<Piece>().posOnGrid.x + ", " + piece.GetComponent<Piece>().posOnGrid.y + " to remove list.");
+        removeList[(int)piece.GetComponent<Piece>().posOnGrid.x, (int)piece.GetComponent<Piece>().posOnGrid.y] = piece;
+    }
+
+    public void removePiece() {
+        for (int x = 0; x < nPA; x++)
         {
-            piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, (int)piece.GetComponent<Piece>().posOnGrid.y] = null;
-            pieces.Remove(piece);
-            Destroy(piece);
-        }
-        else
-        {
-            piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, (int)piece.GetComponent<Piece>().posOnGrid.y] = null;
-            pieces.Remove(piece);
-            Destroy(piece);
-            List<GameObject> fallingPieces = new List<GameObject>();
-            for (int d = (int)piece.GetComponent<Piece>().posOnGrid.y + 1; d < depth; d++)
+            int tally = 0;
+            for (int y = 0; y < depth; y++)
             {
-                if (piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, d] != null && piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, d].GetComponent<Piece>().lockedOnce)
+                //tallies the number of pieces that still exist in this column. used to determine where pieces should fall
+                if (removeList[x, y] != null)
                 {
-                    fallingPieces.Add(piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, d]);
+                    GameObject piece = removeList[x, y];
+
+                    outlines.Remove(piece);
+                    spawnParticles(piece);
+
+                    piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, (int)piece.GetComponent<Piece>().posOnGrid.y] = null;
+                    pieces.Remove(piece);
+                    Destroy(piece);
+
+                    removeList[x, y] = null;
+                    //Debug.Log("removed " + x + ", " + y);
+                    //recalcMovingPieces();
+                }
+                else if(piecesGrid[x, y] != null)
+                { //nested ifs so tally is increased for every piece in the column that exists and is not being removed, while only setting a piece to fall if it needs to
+                    if (y != tally && getPieceComp(x, y).lockedOnce)
+                    {
+                        Debug.Log("falling piece " + x + ", " + y);
+                        GameObject p = piecesGrid[x, y];
+                        piecesGrid[x, y] = null;
+                        p.GetComponent<Piece>().shrinkTime = 1;
+                        p.GetComponent<Piece>().moveTime = 1;
+                        p.GetComponent<Piece>().timeElapsed = 0;
+                        p.GetComponent<Piece>().ogScale = p.transform.localScale;
+                        p.GetComponent<Piece>().ogPos = p.transform.position;
+                        p.GetComponent<Piece>().adjacentRadOnGrid = getOuterRadius(p);
+                        p.GetComponent<Piece>().locked = false;
+                        p.GetComponent<Piece>().posOnGrid = new Vector2(x, tally);
+                        piecesGrid[x, tally] = p;
+                        pieces.Add(p);
+                    }
+                    tally++;
                 }
             }
-
-            foreach (GameObject p in fallingPieces)
-            {
-                piecesGrid[(int)p.GetComponent<Piece>().posOnGrid.x, (int)p.GetComponent<Piece>().posOnGrid.y] = null;
-                p.GetComponent<Piece>().shrinkTime = 1;
-                p.GetComponent<Piece>().moveTime = 1;
-                p.GetComponent<Piece>().timeElapsed = 0;
-                p.GetComponent<Piece>().ogScale = p.transform.localScale;
-                p.GetComponent<Piece>().ogPos = p.transform.position;
-                p.GetComponent<Piece>().adjacentRadOnGrid = getOuterRadius(p);
-                p.GetComponent<Piece>().locked = false;
-                p.GetComponent<Piece>().posOnGrid = new Vector2(p.GetComponent<Piece>().posOnGrid.x, p.GetComponent<Piece>().posOnGrid.y - 1);
-                piecesGrid[(int)p.GetComponent<Piece>().posOnGrid.x, (int)p.GetComponent<Piece>().posOnGrid.y] = p;
-                pieces.Add(p);
-            }
         }
+
+
+        //if (!piece.GetComponent<Piece>().locked)
+        //{
+        //    piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, (int)piece.GetComponent<Piece>().posOnGrid.y] = null;
+        //    pieces.Remove(piece);
+        //    Destroy(piece);
+        //}
+        //else
+        //{
+        //    piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, (int)piece.GetComponent<Piece>().posOnGrid.y] = null;
+        //    pieces.Remove(piece);
+        //    Destroy(piece);
+        //    List<GameObject> fallingPieces = new List<GameObject>();
+        //    for (int d = (int)piece.GetComponent<Piece>().posOnGrid.y + 1; d < depth; d++)
+        //    {
+        //        if (piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, d] != null && piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, d].GetComponent<Piece>().lockedOnce)
+        //        {
+        //            fallingPieces.Add(piecesGrid[(int)piece.GetComponent<Piece>().posOnGrid.x, d]);
+        //        }
+        //    }
+
+        //    foreach (GameObject p in fallingPieces)
+        //    {
+        //        piecesGrid[(int)p.GetComponent<Piece>().posOnGrid.x, (int)p.GetComponent<Piece>().posOnGrid.y] = null;
+        //        p.GetComponent<Piece>().shrinkTime = 1;
+        //        p.GetComponent<Piece>().moveTime = 1;
+        //        p.GetComponent<Piece>().timeElapsed = 0;
+        //        p.GetComponent<Piece>().ogScale = p.transform.localScale;
+        //        p.GetComponent<Piece>().ogPos = p.transform.position;
+        //        p.GetComponent<Piece>().adjacentRadOnGrid = getOuterRadius(p);
+        //        p.GetComponent<Piece>().locked = false;
+        //        p.GetComponent<Piece>().posOnGrid = new Vector2(p.GetComponent<Piece>().posOnGrid.x, p.GetComponent<Piece>().posOnGrid.y - 1);
+        //        piecesGrid[(int)p.GetComponent<Piece>().posOnGrid.x, (int)p.GetComponent<Piece>().posOnGrid.y] = p;
+        //        pieces.Add(p);
+        //    }
+        //}
+
     }
 
     public void outlinePiece(GameObject piece, bool enabled) {
@@ -864,8 +1122,11 @@ public class GameController : MonoBehaviour
     }
 
     public void scorePoints(int piecesCleared) {
-        if(piecesCleared >= 3)
-            GameObject.FindGameObjectWithTag("scoreText").GetComponent<Text>().text = "" + (int.Parse(GameObject.FindGameObjectWithTag("scoreText").GetComponent<Text>().text) + Mathf.Pow(piecesCleared - 2, 2) + 2);
+        if (piecesCleared >= 3)
+        {
+            score += (int) Mathf.Pow(piecesCleared - 2, 2) + 2;
+            GameObject.FindGameObjectWithTag("scoreText").GetComponent<Text>().text = "" + score;
+        }
     }
 
     public void spawnParticles(GameObject piece) {
@@ -878,5 +1139,56 @@ public class GameController : MonoBehaviour
             ParticleSystem.MainModule psMain = parts.GetComponent<ParticleSystem>().main;
             psMain.startColor = piece.GetComponent<Piece>().color;
         }
+    }
+
+    public void scoreProgressionUpdate() {
+        if(colors.Length < 5 && score > 5) {
+            addColor("#ff69b4");
+            zoomCamera(1.0F, 2);
+        }
+
+        zoomCamera();
+    }
+
+    public void addColor(string hex) {
+        string[] temp = new string[colors.Length + 1];
+        for (int c = 0; c < colors.Length; c++) {
+            temp[c] = colors[c];
+        }
+        temp[temp.Length - 1] = hex;
+        colors = temp;
+    }
+
+    public void zoomCamera(float zoomDiff, int timeToMove) {
+        camZoomTimeElapsed = 0;
+        camZoomStart = Camera.main.orthographicSize;
+        camZoomDest = camZoomStart + zoomDiff;
+        camTimeToMove = timeToMove;
+    }
+
+    public void zoomCamera() {
+        if (camZoomTimeElapsed < camTimeToMove) {
+            camZoomTimeElapsed += Time.deltaTime;
+        }
+        float scalar = camZoomTimeElapsed / camTimeToMove;
+        scalar = quadEasing(scalar);
+        if (scalar < 1)
+        {
+            Camera.main.orthographicSize = (scalar * (camZoomDest - camZoomStart)) + camZoomStart;
+        }
+        else { }
+    }
+
+    public string randSpecType() {
+        string type = "";
+        if (Random.Range(0F, 1F) < 0.25F) {
+            float val = Random.Range(0F, 1F);
+            for (int t = 0; t < specialTypes.Length; t++) {
+                if (val >= (1F / (float)specialTypes.Length) * t && val < (1F / (float)specialTypes.Length) * (t+1)) {
+                    type = specialTypes[t];
+                }
+            }
+        }
+        return type;
     }
 }

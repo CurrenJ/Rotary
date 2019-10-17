@@ -6,6 +6,7 @@ TagManager:
   tags:
   - locked
   - scoreText
+  - tipText
   layers:
   - Default
   - TransparentFX
